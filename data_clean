@@ -1,0 +1,188 @@
+import pandas as pd
+import numpy as np
+import time
+import csv
+import json
+from scipy import sparse
+
+
+class high_cor_words:
+
+    def read_files(self, src_file_url):
+        '''
+        this function just read the csv file
+        :param src_file_url: url of source file
+        :return: w_list: splitted word list of each doc
+                 label: label list of each doc
+        '''
+        doc = pd.read_csv(src_file_url)
+        w_list = doc['word_list'].str.split(',')
+        label = doc['label']
+
+        return w_list, label
+
+
+
+    def get_word_matrix(self, w_list, stop_words_url):
+        '''
+        this function return word by document matrix
+        :param w_list: result get from the last function
+        :param stop_words_url: stopping words list txt file
+               tar_url: saving mat to target url
+        :return: np.array matrix of word by doc.
+                 total_word_list
+        '''
+
+        n_doc = len(w_list)
+
+        total_word_list = []
+
+        stop_words = []
+
+        f = open(stop_words_url, 'r')
+        line = f.readline()
+        while line:
+            line = line[0:-1]
+            stop_words.append(line)
+            line = f.readline()
+
+        f.close()
+
+        w_dict = {}
+
+        print('start to get words')
+        t1 = time.time()
+        for doc in w_list:
+            for word in doc:
+                if word not in stop_words:
+                    w_dict.setdefault(word, 0)
+                    w_dict[word] += 1
+
+
+
+        for word in w_dict:
+            total_word_list.append(word)
+            w_dict[word] = total_word_list.index(word)
+
+
+        t2 = time.time()
+
+        print('finish getting words',t2-t1)
+        print(w_dict)
+
+        n_word = len(w_dict)
+
+        print('start to form mat')
+        mat = np.zeros((n_word,n_doc))
+
+        for doc in range(n_doc):
+            # print(w_list[doc])
+            for word in w_list[doc]:
+                if word not in stop_words:
+                    mat[w_dict[word],doc] = mat[w_dict[word],doc] + 1
+
+        # np.savetxt(tar_url, mat)
+        # np.loadtxt('mat.txt')
+
+        t3 = time.time()
+        print('finish forming mat', t3-t2)
+
+        return mat, total_word_list
+
+
+
+    def get_label(self, label):
+        '''
+        this function compute the total label and doc by label matrix
+        :param label: total label list we get from read_file function
+        :return: label_list: all different kind of labels
+                 d_l_mat: doc by label matrix saved in np.array form, label index same as label_list.
+        '''
+
+
+        n_doc = len(label)
+        l_dict = {}
+        label_list = []
+
+        for i in range(n_doc):
+            l_dict.setdefault(label[i], 0)
+            l_dict[label[i]] += 1
+
+        for lab in l_dict:
+            label_list.append(lab)
+
+        n_label = len(label_list)
+
+        d_l_mat = np.zeros((n_doc,n_label))
+
+        for i in range(n_doc):
+            d_l_mat[i,label_list.index(label[i])] = 1
+
+
+        return label_list, d_l_mat
+
+
+
+    def get_corr(self, mat, d_l_mat):
+        '''
+
+        :param mat: word by doc matrix
+        :param d_l_mat:  doc by label matrix
+        :return: correlation matrix of word by label
+        '''
+        n_w = mat.shape[0]
+        n_d = mat.shape[1]
+        n_l = d_l_mat.shape[1]
+        s_label = np.sum(d_l_mat,axis = 0)
+        s_label.shape = (n_l,1)
+        s_word = np.sum(mat,axis = 1)
+        s_word.shape = (n_w,1)
+
+        cov = np.matmul(mat,d_l_mat)/n_d - np.matmul(s_word/n_d,np.transpose(s_label)/n_d)
+
+        # print(np.matmul(mat,d_l_mat)/n_d)
+        # print(np.matmul(s_word,np.transpose(s_label)))
+        # print(cov)
+
+        std_word = np.std(mat, axis = 1)
+        std_word.shape = (n_w,1)
+        std_label = np.std(d_l_mat, axis = 0)
+        std_label.shape = (n_l,1)
+        std_mat = np.matmul(std_word, np.transpose(std_label))
+
+        cor_mat = cov/std_mat
+        # print(std_word)
+        # print(std_label)
+
+        return cor_mat
+
+
+
+HCW = high_cor_words()
+[w_list,label] = HCW.read_files('sample_data2_hmm.csv')
+
+[label_list, d_l_mat] = HCW.get_label(label)
+[mat, total_word_list] = HCW.get_word_matrix(w_list,'stop_words.txt')
+cor_mat = HCW.get_corr(mat,d_l_mat)
+# print(cor_mat)
+
+print('start saving')
+
+
+
+l = pd.DataFrame.from_records(cor_mat.tolist(), columns = label_list)
+l['words'] = total_word_list
+
+l.to_csv('corr.csv', encoding='utf-8', index=False)
+
+
+
+# with open("word.csv", "w") as f:
+#     writer = csv.writer(f)
+#     writer.writerows(total_word_list)
+#
+# with open("label.csv", "w") as f:
+#     writer = csv.writer(f)
+#     writer.writerows(label_list)
+#
+# np.savetxt('corr.csv', cor_mat, delimiter = ',')
